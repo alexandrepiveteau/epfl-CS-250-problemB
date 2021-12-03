@@ -1,0 +1,5 @@
+# Ignore build files.
+/build
+
+# Ignore IntelliJ IDEA files.
+/.idea
