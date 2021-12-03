@@ -4,77 +4,37 @@
 #include <signal.h>
 #include <string.h>
 
+#define MAX_CITIES (100000 + 1)          // One city for the airport
+#define MAX_ROUTES (100000 + MAX_CITIES) // All routes, plus one route between each city and the airport.
+
 #define DEFAULT_CAPACITY 128
 #define IMPOSSIBLE -1
 
+/**
+ * A data structure which contains information about the current graph of cities. This data structure can then be
+ * easily allocated on the stack, since it has a fixed size.
+ */
 typedef struct graph {
+
+  /** The number of cities of the graph. */
   size_t size;
-  int *capacity;
-  int *degree;
-  int **neighbours;
+
+  /** The number of cities which are reachable from the provided city. */
+  int degrees[MAX_CITIES + 1];
+
+  /** The offset in the neighbours adjacency list where the neighbours of the i-th city start. */
+  int start[MAX_CITIES + 1];
+
+  /** The neighbours of the city at the provided index. Each edge goes in two directions. */
+  int neighbours[2 * MAX_ROUTES];
 } graph_t;
 
-graph_t *make_graph(size_t size) {
-
-  // TODO : Handle bad mallocs.
-
-  graph_t *ptr = malloc(sizeof(graph_t));
-  int *capacity = calloc(size, sizeof(int));
-  int *degree = calloc(size, sizeof(int));
-  int **neighbours = calloc(size, sizeof(int *));
-
-  for (int i = 0; i < size; i++) {
-    capacity[i] = DEFAULT_CAPACITY;
-    degree[i] = 0;
-    neighbours[i] = calloc(DEFAULT_CAPACITY, sizeof(int));
-  }
-
-  ptr->size = size;
-  ptr->capacity = capacity;
-  ptr->degree = degree;
-  ptr->neighbours = neighbours;
-
-  return ptr;
-}
-
 /**
- * Ensures that the graph has enough room to accept one more neighbour for the given city.
- * @param graph the graph we want to update.
- * @param city the city we want to increase the capacity of.
+ * A data structure which represents at edge between two nodes, starting at from and ending at to.
  */
-void graph_ensure_capacity(graph_t *graph, int city) {
-  if (!graph) return;
-  if (graph->capacity[city] == graph->degree[city]) {
-    graph->neighbours[city] = realloc(graph->neighbours[city], graph->capacity[city] * 2 * sizeof(int));
-    graph->capacity[city] *= 2;
-  }
-}
-
-/**
- * Adds a railway between two cities.
- * @param graph the graph we want to act on.
- * @param from the city we're starting the railway from.
- * @param until the city we're ending the railway on.
- */
-void graph_add_railway(graph_t *graph, int from, int until) {
-  if (!graph) return;
-  graph_ensure_capacity(graph, from);
-  graph_ensure_capacity(graph, until);
-  graph->neighbours[from][graph->degree[from]] = until;
-  graph->neighbours[until][graph->degree[until]] = from;
-  graph->degree[from]++;
-  graph->degree[until]++;
-}
-
-/**
- * Adds an airport to the given city.
- * @param graph the graph we want to act on.
- * @param city the city we're adding an airport to.
- */
-void graph_add_airport(graph_t *graph, int city) {
-  if (!graph) return;
-  graph_add_railway(graph, city, (int) graph->size - 1);
-}
+typedef struct edge {
+  int from, to;
+} edge_t;
 
 /**
  * A dynamic circular buffer, which contains some items and may be iterated in a circular fashion. The buffer has a
@@ -159,12 +119,17 @@ int circular_buffer_dequeue(circular_buffer_t *buffer) {
   return item;
 }
 
-int solve(graph_t *graph, int from, int until) {
+/**
+ * The graph in which the model will be stored.
+ */
+graph_t graph;
+
+int solve(int from, int until) {
   circular_buffer_t *queue = make_circular_buffer(DEFAULT_CAPACITY);
   if (!queue) return IMPOSSIBLE;
   int distance = 1;
-  bool visited[graph->size];
-  memset(visited, 0, graph->size * sizeof(bool));
+  bool visited[graph.size];
+  memset(visited, 0, graph.size * sizeof(bool));
 
   circular_buffer_enqueue(queue, from);
   while (queue->size > 0) {
@@ -174,9 +139,9 @@ int solve(graph_t *graph, int from, int until) {
     } else if (head == until) {
       return distance - 1;
     } else {
-      if (graph->degree[head] > 0) circular_buffer_enqueue(queue, -distance - 1);
-      for (int i = 0; i < graph->degree[head]; i++) {
-        int city = graph->neighbours[head][i];
+      if (graph.degrees[head] > 0) circular_buffer_enqueue(queue, -distance - 1);
+      for (int i = 0; i < graph.degrees[head]; i++) {
+        int city = graph.neighbours[graph.start[head] + i];
         if (!visited[city]) {
           circular_buffer_enqueue(queue, city);
           visited[city] = true;
@@ -236,19 +201,56 @@ int main() {
   int k = scan_int();
   int s = scan_int();
   int t = scan_int();
-  graph_t *graph = make_graph(n + 1);
+
+  int airports[k];
+  edge_t edges[m];
+  graph.size = n + 1;
 
   for (int i = 0; i < k; i++) {
-    int tmp = scan_int();
-    graph_add_airport(graph, tmp - 1);
+    int city = scan_int();
+    airports[i] = city;
+    graph.degrees[0]++;
+    graph.degrees[city]++;
   }
   for (int i = 0; i < m; i++) {
-    int from = scan_int();
-    int until = scan_int();
-    graph_add_railway(graph, from - 1, until - 1);
+    int a = scan_int();
+    int b = scan_int();
+    edges[i].from = a;
+    edges[i].to = b;
+    graph.degrees[a]++;
+    graph.degrees[b]++;
   }
 
-  int result = solve(graph, s - 1, t - 1);
+  // We can now compute the offsets.
+  int start = 0;
+  for (int i = 0; i < n + 2; i++) {
+    graph.start[i] = start;
+    start += graph.degrees[i];
+    graph.degrees[i] = 0; // Reset the degrees, so we can use them afterwards when we're adding items.
+  }
+
+  // Finally, add the proper normal edges.
+  for (int i = 0; i < m; i++) {
+    edge_t edge = edges[i];
+    size_t from_index = graph.start[edge.from] + graph.degrees[edge.from];
+    size_t to_index = graph.start[edge.to] + graph.degrees[edge.to];
+    graph.neighbours[from_index] = edge.to;
+    graph.neighbours[to_index] = edge.from;
+    graph.degrees[edge.from]++;
+    graph.degrees[edge.to]++;
+  }
+  // And the airports.
+  for (int i = 0; i < k; i++) {
+    int airport = airports[i];
+    size_t from_index = graph.start[0] + graph.degrees[0];
+    size_t to_index = graph.start[airport] + graph.degrees[airport];
+    graph.neighbours[from_index] = airport;
+    graph.neighbours[to_index] = 0;
+    graph.degrees[0]++;
+    graph.degrees[airport]++;
+  }
+
+  int result = solve(s, t);
   if (result == IMPOSSIBLE) {
     printf("Impossible\n");
   } else {
