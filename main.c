@@ -63,8 +63,8 @@ typedef struct circular_buffer {
  */
 circular_buffer_t *make_circular_buffer(size_t capacity) {
   if (capacity == 0) return NULL;
-  circular_buffer_t *ptr = malloc(sizeof(circular_buffer_t));
-  int *elements = calloc(capacity, sizeof(int));
+  circular_buffer_t *ptr = (circular_buffer_t *) malloc(sizeof(circular_buffer_t));
+  int *elements = (int *) calloc(capacity, sizeof(int));
   if (!ptr || !elements) {
     free(ptr);
     free(elements);
@@ -86,7 +86,7 @@ circular_buffer_t *make_circular_buffer(size_t capacity) {
  */
 int circular_buffer_enqueue(circular_buffer_t *buffer, int element) {
   if (buffer->capacity == buffer->size) {
-    int *space = calloc(buffer->capacity * 2, sizeof(int));
+    int *space = (int *) calloc(buffer->capacity * 2, sizeof(int));
     if (!space) return 1; // We could not increase the buffer capacity.
 
     // TODO: A bit ugly, but essentially, we can simply duplicate the contents of the buffer rather than calculate good bounds.
